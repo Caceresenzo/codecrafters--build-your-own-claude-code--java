@@ -1,14 +1,17 @@
 import java.io.IOException;
 import java.nio.file.Files;
 import java.nio.file.Path;
+import java.util.Collection;
+import java.util.function.Predicate;
 
 import com.fasterxml.jackson.annotation.JsonClassDescription;
 import com.fasterxml.jackson.annotation.JsonProperty;
 import com.fasterxml.jackson.annotation.JsonPropertyDescription;
-import com.openai.client.OpenAIClient;
 import com.openai.client.okhttp.OpenAIOkHttpClient;
 import com.openai.models.chat.completions.ChatCompletion;
 import com.openai.models.chat.completions.ChatCompletionCreateParams;
+import com.openai.models.chat.completions.ChatCompletionMessageFunctionToolCall;
+import com.openai.models.chat.completions.ChatCompletionToolMessageParam;
 
 public class Main {
 
@@ -41,39 +44,67 @@ public class Main {
 			throw new RuntimeException("error: -p flag is required");
 		}
 
-		String apiKey = System.getenv("OPENROUTER_API_KEY");
+		var apiKey = System.getenv("OPENROUTER_API_KEY");
 		if (apiKey == null || apiKey.isEmpty()) {
 			throw new RuntimeException("OPENROUTER_API_KEY is not set");
 		}
 
-		String baseUrl = System.getenv("OPENROUTER_BASE_URL");
+		var baseUrl = System.getenv("OPENROUTER_BASE_URL");
 		if (baseUrl == null || baseUrl.isEmpty()) {
 			baseUrl = "https://openrouter.ai/api/v1";
 		}
 
-		String modelName = System.getenv("OPENROUTER_MODEL_NAME");
+		var modelName = System.getenv("OPENROUTER_MODEL_NAME");
 		if (modelName == null || modelName.isEmpty()) {
 			modelName = "anthropic/claude-haiku-4.5"; // z-ai/glm-4.5-air:free
 		}
 
-		OpenAIClient client = OpenAIOkHttpClient.builder()
+		final var client = OpenAIOkHttpClient.builder()
 			.apiKey(apiKey)
 			.baseUrl(baseUrl)
 			.build();
 
-		ChatCompletion response = client.chat().completions().create(
-			ChatCompletionCreateParams.builder()
-				.model(modelName)
-				.addTool(Read.class)
-				.addUserMessage(prompt)
-				.build()
-		);
+		final var createParamsBuilder = ChatCompletionCreateParams.builder()
+			.model(modelName)
+			.addTool(Read.class)
+			.addUserMessage(prompt);
 
-		if (response.choices().isEmpty()) {
-			throw new RuntimeException("no choices in response");
+		final var running = new boolean[] { true };
+		while (running[0]) {
+			running[0] = false;
+
+			client.chat().completions().create(createParamsBuilder.build()).choices()
+				.stream()
+				.map(ChatCompletion.Choice::message)
+				.peek(createParamsBuilder::addMessage) /* bad practice */
+				.flatMap((message) -> {
+					message.content().filter(Predicate.not(String::isBlank)).ifPresent(System.out::println);
+					return message.toolCalls().stream().flatMap(Collection::stream);
+				})
+				.forEach((toolCall) -> {
+					final var functionToolCall = toolCall.asFunction();
+
+					final var result = callFunction(functionToolCall.function());
+
+					createParamsBuilder.addMessage(ChatCompletionToolMessageParam.builder()
+						.toolCallId(functionToolCall.id())
+						.contentAsJson(result)
+						.build());
+
+					running[0] = true;
+				});
 		}
+	}
 
-		System.out.print(response.choices().get(0).message().content().orElse(""));
+	static Object callFunction(ChatCompletionMessageFunctionToolCall.Function function) {
+		System.err.println("[tool] calling %s with arguments %s".formatted(function.name(), function.arguments()));
+
+		switch (function.name()) {
+			case "Read":
+				return function.arguments(Read.class).execute();
+			default:
+				throw new IllegalArgumentException("Unknown function: " + function.name());
+		}
 	}
 
 }
