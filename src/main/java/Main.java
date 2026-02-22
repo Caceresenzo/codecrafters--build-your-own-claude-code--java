@@ -1,3 +1,4 @@
+import java.io.File;
 import java.io.IOException;
 import java.nio.file.Files;
 import java.nio.file.Path;
@@ -53,6 +54,70 @@ public class Main {
 
 	}
 
+	@JsonClassDescription("Execute a shell command")
+	static class Bash {
+
+		@JsonProperty("command")
+		@JsonPropertyDescription("The command to execute")
+		public String command;
+
+		public String execute() {
+			Path logDirectoryPath = null;
+			try {
+				logDirectoryPath = Files.createTempDirectory("claude-code-bash");
+
+				final var outputLogFile = new File(logDirectoryPath.toFile(), "output.log");
+				final var errorLogFile = new File(logDirectoryPath.toFile(), "error.log");
+
+				final var process = new ProcessBuilder("/bin/sh", "-c", command)
+					.redirectOutput(outputLogFile)
+					.redirectError(errorLogFile)
+					.start();
+
+				final var exitCode = process.waitFor();
+
+				return """
+					Executed command: %s
+					Exit Code: %s
+
+					--- output log ---
+					%s
+
+					--- error log ---
+					%s
+					""".formatted(
+					command,
+					exitCode,
+					Files.readString(outputLogFile.toPath()),
+					Files.readString(errorLogFile.toPath())
+				);
+			} catch (IOException | InterruptedException exception) {
+				return "The file could not be written: %s".formatted(exception.getMessage());
+			} finally {
+				deleteLogFiles(logDirectoryPath);
+			}
+		}
+
+		private void deleteLogFiles(Path logDirectoryPath) {
+			if (logDirectoryPath == null) {
+				return;
+			}
+
+			try {
+				Files.deleteIfExists(logDirectoryPath.resolve("output.log"));
+			} catch (IOException __) {}
+
+			try {
+				Files.deleteIfExists(logDirectoryPath.resolve("error.log"));
+			} catch (IOException __) {}
+
+			try {
+				Files.deleteIfExists(logDirectoryPath);
+			} catch (IOException __) {}
+		}
+
+	}
+
 	public static void main(String[] args) {
 		String prompt = null;
 		for (int i = 0; i < args.length; i++) {
@@ -89,6 +154,7 @@ public class Main {
 			.model(modelName)
 			.addTool(Read.class)
 			.addTool(Write.class)
+			.addTool(Bash.class)
 			.addUserMessage(prompt);
 
 		while (true) {
@@ -136,14 +202,16 @@ public class Main {
 	static Object callFunction(ChatCompletionMessageFunctionToolCall.Function function) {
 		System.err.println("[tool] calling %s with arguments %s".formatted(function.name(), function.arguments()));
 
-		switch (function.name()) {
-			case "Read":
-				return function.arguments(Read.class).execute();
-			case "Write":
-				return function.arguments(Write.class).execute();
-			default:
-				throw new IllegalArgumentException("Unknown function: " + function.name());
-		}
+		final var result = switch (function.name()) {
+			case "Read" -> function.arguments(Read.class).execute();
+			case "Write" -> function.arguments(Write.class).execute();
+			case "Bash" -> function.arguments(Bash.class).execute();
+			default -> throw new IllegalArgumentException("Unknown function: " + function.name());
+		};
+
+		System.err.println("[tool] result: %s".formatted(result));
+
+		return result;
 	}
 
 }
