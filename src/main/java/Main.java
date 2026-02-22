@@ -1,9 +1,33 @@
+import java.io.IOException;
+import java.nio.file.Files;
+import java.nio.file.Path;
+
+import com.fasterxml.jackson.annotation.JsonClassDescription;
+import com.fasterxml.jackson.annotation.JsonProperty;
+import com.fasterxml.jackson.annotation.JsonPropertyDescription;
 import com.openai.client.OpenAIClient;
 import com.openai.client.okhttp.OpenAIOkHttpClient;
 import com.openai.models.chat.completions.ChatCompletion;
 import com.openai.models.chat.completions.ChatCompletionCreateParams;
 
 public class Main {
+
+	@JsonClassDescription("Read and return the contents of a file")
+	static class Read {
+
+		@JsonProperty("file_path")
+		@JsonPropertyDescription("The path to the file to read")
+		public String filePath;
+
+		public String execute() {
+			try {
+				return Files.readString(Path.of(filePath));
+			} catch (IOException exception) {
+				return "The file could not be read: %s".formatted(exception.getMessage());
+			}
+		}
+
+	}
 
 	public static void main(String[] args) {
 		String prompt = null;
@@ -40,6 +64,7 @@ public class Main {
 		ChatCompletion response = client.chat().completions().create(
 			ChatCompletionCreateParams.builder()
 				.model(modelName)
+				.addTool(Read.class)
 				.addUserMessage(prompt)
 				.build()
 		);
