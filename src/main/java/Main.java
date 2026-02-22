@@ -30,6 +30,29 @@ public class Main {
 
 	}
 
+	@JsonClassDescription("Write content to a file")
+	static class Write {
+
+		@JsonProperty("file_path")
+		@JsonPropertyDescription("The path of the file to write to")
+		public String filePath;
+
+		@JsonProperty("content")
+		@JsonPropertyDescription("The content to write to the file")
+		public String content;
+
+		public String execute() {
+			try {
+				final var bytes = content.getBytes();
+				Files.write(Path.of(filePath), bytes);
+				return "Wrote %s bytes".formatted(bytes.length);
+			} catch (IOException exception) {
+				return "The file could not be written: %s".formatted(exception.getMessage());
+			}
+		}
+
+	}
+
 	public static void main(String[] args) {
 		String prompt = null;
 		for (int i = 0; i < args.length; i++) {
@@ -65,6 +88,7 @@ public class Main {
 		final var createParamsBuilder = ChatCompletionCreateParams.builder()
 			.model(modelName)
 			.addTool(Read.class)
+			.addTool(Write.class)
 			.addUserMessage(prompt);
 
 		while (true) {
@@ -79,11 +103,12 @@ public class Main {
 			createParamsBuilder.addMessage(message);
 
 			if (FinishReason.TOOL_CALLS.equals(choice.finishReason())) {
-				if (message.toolCalls().isEmpty()) {
+				final var toolCalls = message.toolCalls();
+				if (toolCalls.isEmpty()) {
 					throw new IllegalStateException("no tool calls found in the message");
 				}
 
-				for (final var toolCall : message.toolCalls().get()) {
+				for (final var toolCall : toolCalls.get()) {
 					if (!toolCall.isFunction()) {
 						throw new IllegalStateException("unexpected tool call type: " + toolCall.toString());
 					}
@@ -114,6 +139,8 @@ public class Main {
 		switch (function.name()) {
 			case "Read":
 				return function.arguments(Read.class).execute();
+			case "Write":
+				return function.arguments(Write.class).execute();
 			default:
 				throw new IllegalArgumentException("Unknown function: " + function.name());
 		}
