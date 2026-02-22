@@ -1,14 +1,12 @@
 import java.io.IOException;
 import java.nio.file.Files;
 import java.nio.file.Path;
-import java.util.Collection;
-import java.util.function.Predicate;
 
 import com.fasterxml.jackson.annotation.JsonClassDescription;
 import com.fasterxml.jackson.annotation.JsonProperty;
 import com.fasterxml.jackson.annotation.JsonPropertyDescription;
 import com.openai.client.okhttp.OpenAIOkHttpClient;
-import com.openai.models.chat.completions.ChatCompletion;
+import com.openai.models.chat.completions.ChatCompletion.Choice.FinishReason;
 import com.openai.models.chat.completions.ChatCompletionCreateParams;
 import com.openai.models.chat.completions.ChatCompletionMessageFunctionToolCall;
 import com.openai.models.chat.completions.ChatCompletionToolMessageParam;
@@ -69,30 +67,44 @@ public class Main {
 			.addTool(Read.class)
 			.addUserMessage(prompt);
 
-		final var running = new boolean[] { true };
-		while (running[0]) {
-			running[0] = false;
+		while (true) {
+			final var choices = client.chat().completions().create(createParamsBuilder.build()).choices();
+			if (choices.isEmpty()) {
+				throw new IllegalStateException("no choices returned from the chat completion");
+			}
 
-			client.chat().completions().create(createParamsBuilder.build()).choices()
-				.stream()
-				.map(ChatCompletion.Choice::message)
-				.peek(createParamsBuilder::addMessage) /* bad practice */
-				.flatMap((message) -> {
-					message.content().filter(Predicate.not(String::isBlank)).ifPresent(System.out::println);
-					return message.toolCalls().stream().flatMap(Collection::stream);
-				})
-				.forEach((toolCall) -> {
+			final var choice = choices.getFirst();
+
+			final var message = choice.message();
+			createParamsBuilder.addMessage(message);
+
+			if (FinishReason.TOOL_CALLS.equals(choice.finishReason())) {
+				if (message.toolCalls().isEmpty()) {
+					throw new IllegalStateException("no tool calls found in the message");
+				}
+
+				for (final var toolCall : message.toolCalls().get()) {
+					if (!toolCall.isFunction()) {
+						throw new IllegalStateException("unexpected tool call type: " + toolCall.toString());
+					}
+
 					final var functionToolCall = toolCall.asFunction();
-
 					final var result = callFunction(functionToolCall.function());
 
-					createParamsBuilder.addMessage(ChatCompletionToolMessageParam.builder()
-						.toolCallId(functionToolCall.id())
-						.contentAsJson(result)
-						.build());
-
-					running[0] = true;
-				});
+					createParamsBuilder.addMessage(
+						ChatCompletionToolMessageParam.builder()
+							.toolCallId(functionToolCall.id())
+							.contentAsJson(result)
+							.build()
+					);
+				}
+			} else if (FinishReason.STOP.equals(choice.finishReason())) {
+				message.content().ifPresent(System.out::println);
+				break;
+			} else {
+				System.err.println("Chat completion finished with reason: " + choice.finishReason());
+				break;
+			}
 		}
 	}
 
