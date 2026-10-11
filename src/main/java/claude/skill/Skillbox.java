@@ -4,6 +4,7 @@ import java.nio.file.Files;
 import java.nio.file.Path;
 import java.util.ArrayList;
 import java.util.List;
+import java.util.Optional;
 
 import lombok.SneakyThrows;
 
@@ -24,6 +25,12 @@ public class Skillbox {
 		}
 
 		return builder.toString();
+	}
+
+	public Optional<Skill> find(String name) {
+		return skills.stream()
+			.filter((skill) -> skill.name().equalsIgnoreCase(name))
+			.findFirst();
 	}
 
 	@SneakyThrows
@@ -68,6 +75,9 @@ public class Skillbox {
 						builder.description(value);
 					}
 				}
+
+				final var content = String.join("\n", lines).trim();
+				builder.content(content);
 
 				final var skill = builder.build();
 				skills.add(skill);

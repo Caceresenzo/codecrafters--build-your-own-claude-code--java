@@ -53,8 +53,23 @@ public class Main {
 			.addTool(Read.class)
 			.addTool(Write.class)
 			.addTool(Bash.class)
-			.addSystemMessage(skillbox.toSystemPrompt())
-			.addUserMessage(prompt);
+			.addSystemMessage(skillbox.toSystemPrompt());
+
+		if (prompt.startsWith("/")) {
+			final var skill = skillbox.find(prompt).orElse(null);
+
+			if (skill == null) {
+				System.err.println("Skill not found for prompt: " + prompt);
+				createParamsBuilder
+					.addUserMessage(prompt);
+			} else {
+				createParamsBuilder
+					.addUserMessage("I want to use the skill: " + skill.name() + "\n\n" + skill.content());
+			}
+		} else {
+			createParamsBuilder
+				.addUserMessage(prompt);
+		}
 
 		while (true) {
 			final var choices = client.chat().completions().create(createParamsBuilder.build()).choices();

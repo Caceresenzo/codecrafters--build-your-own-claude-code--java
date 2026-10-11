@@ -8,5 +8,6 @@ import lombok.Builder;
 public record Skill(
 	Path directory,
 	String name,
-	String description
+	String description,
+	String content
 ) {}
