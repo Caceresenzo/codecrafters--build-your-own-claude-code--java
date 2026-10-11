@@ -82,10 +82,10 @@ public class Main {
 					createParamsBuilder
 						.addUserMessage(prompt);
 				} else {
-					final var formatted = skill.format(skillArguments);
+					final var formatted = skill.format(skillArguments, true);
 
 					createParamsBuilder
-						.addUserMessage("User invoked a Skill: %s%n%n%s".formatted(skill.name(), formatted));
+						.addUserMessage(formatted);
 				}
 			}
 
