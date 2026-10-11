@@ -17,7 +17,7 @@ public record Skill(
 	public static final String ALL_ARGUMENTS = "$ARGUMENTS";
 	public static final Pattern ARGUMENT_PATTERN = Pattern.compile("(?:\\$(\\d+)|\\" + ALL_ARGUMENTS + "\\[(\\d+)\\])");
 
-	public String format(List<String> arguments) {
+	public String format(List<String> arguments, boolean includeLocation) {
 		var formatted = ARGUMENT_PATTERN.matcher(content).replaceAll((match) -> {
 			final var index = Integer.parseInt(match.group(1) != null ? match.group(1) : match.group(2));
 
@@ -30,6 +30,10 @@ public record Skill(
 
 		if (formatted.contains(ALL_ARGUMENTS)) {
 			formatted = formatted.replace(ALL_ARGUMENTS, String.join(" ", arguments));
+		}
+
+		if (includeLocation) {
+			formatted = "User invoked the skill: %s (located at %s)\n%s".formatted(name, directory.toAbsolutePath(), formatted);
 		}
 
 		return formatted;
