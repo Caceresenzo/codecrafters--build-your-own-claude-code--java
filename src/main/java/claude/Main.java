@@ -57,6 +57,7 @@ public class Main {
 			.addTool(Read.class)
 			.addTool(Write.class)
 			.addTool(Bash.class)
+			.addTool(claude.tool.Skill.class)
 			.addSystemMessage(skillbox.toSystemPrompt());
 
 		if (prompt.startsWith("/")) {
@@ -117,7 +118,7 @@ public class Main {
 					}
 
 					final var functionToolCall = toolCall.asFunction();
-					final var result = callFunction(functionToolCall.function());
+					final var result = callFunction(functionToolCall.function(), skillbox);
 
 					createParamsBuilder.addMessage(
 						ChatCompletionToolMessageParam.builder()
@@ -136,13 +137,14 @@ public class Main {
 		}
 	}
 
-	static Object callFunction(ChatCompletionMessageFunctionToolCall.Function function) {
+	static Object callFunction(ChatCompletionMessageFunctionToolCall.Function function, Skillbox skillbox) {
 		System.err.println("[tool] calling %s with arguments %s".formatted(function.name(), function.arguments()));
 
 		final var result = switch (function.name()) {
 			case "Read" -> function.arguments(Read.class).execute();
 			case "Write" -> function.arguments(Write.class).execute();
 			case "Bash" -> function.arguments(Bash.class).execute();
+			case "Skill" -> function.arguments(claude.tool.Skill.class).execute(skillbox);
 			default -> throw new IllegalArgumentException("Unknown function: " + function.name());
 		};
 
