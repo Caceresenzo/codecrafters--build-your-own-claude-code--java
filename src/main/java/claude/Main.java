@@ -1,122 +1,17 @@
-import java.io.File;
-import java.io.IOException;
-import java.nio.file.Files;
-import java.nio.file.Path;
+package claude;
 
-import com.fasterxml.jackson.annotation.JsonClassDescription;
-import com.fasterxml.jackson.annotation.JsonProperty;
-import com.fasterxml.jackson.annotation.JsonPropertyDescription;
 import com.openai.client.okhttp.OpenAIOkHttpClient;
 import com.openai.models.chat.completions.ChatCompletion.Choice.FinishReason;
 import com.openai.models.chat.completions.ChatCompletionCreateParams;
 import com.openai.models.chat.completions.ChatCompletionMessageFunctionToolCall;
 import com.openai.models.chat.completions.ChatCompletionToolMessageParam;
 
+import claude.skill.Skillbox;
+import claude.tool.Bash;
+import claude.tool.Read;
+import claude.tool.Write;
+
 public class Main {
-
-	@JsonClassDescription("Read and return the contents of a file")
-	static class Read {
-
-		@JsonProperty("file_path")
-		@JsonPropertyDescription("The path to the file to read")
-		public String filePath;
-
-		public String execute() {
-			try {
-				return Files.readString(Path.of(filePath));
-			} catch (IOException exception) {
-				return "The file could not be read: %s".formatted(exception.getMessage());
-			}
-		}
-
-	}
-
-	@JsonClassDescription("Write content to a file")
-	static class Write {
-
-		@JsonProperty("file_path")
-		@JsonPropertyDescription("The path of the file to write to")
-		public String filePath;
-
-		@JsonProperty("content")
-		@JsonPropertyDescription("The content to write to the file")
-		public String content;
-
-		public String execute() {
-			try {
-				final var bytes = content.getBytes();
-				Files.write(Path.of(filePath), bytes);
-				return "Wrote %s bytes".formatted(bytes.length);
-			} catch (IOException exception) {
-				return "The file could not be written: %s".formatted(exception.getMessage());
-			}
-		}
-
-	}
-
-	@JsonClassDescription("Execute a shell command")
-	static class Bash {
-
-		@JsonProperty("command")
-		@JsonPropertyDescription("The command to execute")
-		public String command;
-
-		public String execute() {
-			Path logDirectoryPath = null;
-			try {
-				logDirectoryPath = Files.createTempDirectory("claude-code-bash");
-
-				final var outputLogFile = new File(logDirectoryPath.toFile(), "output.log");
-				final var errorLogFile = new File(logDirectoryPath.toFile(), "error.log");
-
-				final var process = new ProcessBuilder("/bin/sh", "-c", command)
-					.redirectOutput(outputLogFile)
-					.redirectError(errorLogFile)
-					.start();
-
-				final var exitCode = process.waitFor();
-
-				return """
-					Executed command: %s
-					Exit Code: %s
-
-					--- output log ---
-					%s
-
-					--- error log ---
-					%s
-					""".formatted(
-					command,
-					exitCode,
-					Files.readString(outputLogFile.toPath()),
-					Files.readString(errorLogFile.toPath())
-				);
-			} catch (IOException | InterruptedException exception) {
-				return "The file could not be written: %s".formatted(exception.getMessage());
-			} finally {
-				deleteLogFiles(logDirectoryPath);
-			}
-		}
-
-		private void deleteLogFiles(Path logDirectoryPath) {
-			if (logDirectoryPath == null) {
-				return;
-			}
-
-			try {
-				Files.deleteIfExists(logDirectoryPath.resolve("output.log"));
-			} catch (IOException __) {}
-
-			try {
-				Files.deleteIfExists(logDirectoryPath.resolve("error.log"));
-			} catch (IOException __) {}
-
-			try {
-				Files.deleteIfExists(logDirectoryPath);
-			} catch (IOException __) {}
-		}
-
-	}
 
 	public static void main(String[] args) {
 		String prompt = null;
@@ -142,7 +37,7 @@ public class Main {
 
 		var modelName = System.getenv("OPENROUTER_MODEL_NAME");
 		if (modelName == null || modelName.isEmpty()) {
-			modelName = "anthropic/claude-haiku-4.5"; // z-ai/glm-4.5-air:free
+			modelName = "anthropic/claude-haiku-4.5"; // nvidia/nemotron-3.5-lightning:free
 		}
 
 		final var client = OpenAIOkHttpClient.builder()
@@ -150,11 +45,18 @@ public class Main {
 			.baseUrl(baseUrl)
 			.build();
 
+		final var skillbox = new Skillbox();
+		skillbox.locate();
+
+		System.out.println(skillbox.toSystemPrompt());
+		System.exit(0);
+
 		final var createParamsBuilder = ChatCompletionCreateParams.builder()
 			.model(modelName)
 			.addTool(Read.class)
 			.addTool(Write.class)
 			.addTool(Bash.class)
+			.addSystemMessage(skillbox.toSystemPrompt())
 			.addUserMessage(prompt);
 
 		while (true) {
