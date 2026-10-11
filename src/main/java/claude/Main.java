@@ -1,5 +1,7 @@
 package claude;
 
+import java.util.Arrays;
+
 import com.openai.client.okhttp.OpenAIOkHttpClient;
 import com.openai.models.chat.completions.ChatCompletion.Choice.FinishReason;
 import com.openai.models.chat.completions.ChatCompletionCreateParams;
@@ -56,15 +58,18 @@ public class Main {
 			.addSystemMessage(skillbox.toSystemPrompt());
 
 		if (prompt.startsWith("/")) {
-			final var skill = skillbox.find(prompt.substring(1)).orElse(null);
+			final var arguments = prompt.split(" ");
+			final var skill = skillbox.find(arguments[0].substring(1)).orElse(null);
 
 			if (skill == null) {
 				System.err.println("Skill not found for prompt: " + prompt);
 				createParamsBuilder
 					.addUserMessage(prompt);
 			} else {
+				final var formatted = skill.format(Arrays.asList(arguments).subList(1, arguments.length));
+
 				createParamsBuilder
-					.addUserMessage("I want to use the skill: " + skill.name() + "\n\n" + skill.content());
+					.addUserMessage("I want to use the skill: " + skill.name() + "\n\n" + formatted);
 			}
 		} else {
 			createParamsBuilder
