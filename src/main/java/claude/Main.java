@@ -1,6 +1,6 @@
 package claude;
 
-import java.util.Arrays;
+import java.util.ArrayList;
 
 import com.openai.client.okhttp.OpenAIOkHttpClient;
 import com.openai.models.chat.completions.ChatCompletion.Choice.FinishReason;
@@ -62,18 +62,31 @@ public class Main {
 		if (prompt.startsWith("/")) {
 			final var arguments = prompt.split(" ");
 
-			final var skillName = arguments[0].substring(1);
-			final var skill = skillbox.find(skillName).orElse(null);
+			final var skillNames = new ArrayList<String>(arguments.length);
+			final var skillArguments = new ArrayList<String>(arguments.length);
 
-			if (skill == null) {
-				System.err.println("Skill not found for prompt: " + skillName);
-				createParamsBuilder
-					.addUserMessage(prompt);
-			} else {
-				final var formatted = skill.format(Arrays.asList(arguments).subList(1, arguments.length));
-				createParamsBuilder
-					.addUserMessage("I want to use the skill: " + skill.name() + "\n\n" + formatted);
+			for (final var argument : arguments) {
+				if (argument.startsWith("/")) {
+					skillNames.add(argument.substring(1));
+				} else {
+					skillArguments.add(argument);
+				}
 			}
+
+			for (final var skillName : skillNames) {
+				final var skill = skillbox.find(skillName).orElse(null);
+
+				if (skill == null) {
+					System.err.println("Skill not found for prompt: " + skillName);
+					createParamsBuilder
+						.addUserMessage(prompt);
+				} else {
+					final var formatted = skill.format(skillArguments);
+					createParamsBuilder
+						.addUserMessage("I want to use the skill: " + skill.name() + "\n\n" + formatted);
+				}
+			}
+
 		} else {
 			createParamsBuilder
 				.addUserMessage(prompt);
