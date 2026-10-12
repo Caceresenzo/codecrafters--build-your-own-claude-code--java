@@ -57,7 +57,8 @@ public class Skillbox {
 				}
 
 				final var builder = Skill.builder()
-					.directory(directory);
+					.directory(directory)
+					.context(SkillContext.DEFAULT);
 
 				String line;
 				while (!METADATA_SEPARATOR.equals(line = lines.removeFirst())) {
@@ -73,6 +74,8 @@ public class Skillbox {
 						builder.name(value);
 					} else if ("description".equalsIgnoreCase(key)) {
 						builder.description(value);
+					} else if ("context".equalsIgnoreCase(key)) {
+						builder.context(SkillContext.valueOf(value.toUpperCase()));
 					}
 				}
 
