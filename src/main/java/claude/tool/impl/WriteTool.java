@@ -1,4 +1,4 @@
-package claude.tool;
+package claude.tool.impl;
 
 import java.io.IOException;
 import java.nio.file.Files;
@@ -7,9 +7,14 @@ import java.nio.file.Path;
 import com.fasterxml.jackson.annotation.JsonClassDescription;
 import com.fasterxml.jackson.annotation.JsonProperty;
 import com.fasterxml.jackson.annotation.JsonPropertyDescription;
+import com.fasterxml.jackson.annotation.JsonTypeName;
 
-@JsonClassDescription("Write content to a file")
-public class Write {
+import claude.Agent;
+import claude.tool.Tool;
+
+@JsonTypeName("Write")
+@JsonClassDescription("WriteTool content to a file")
+public class WriteTool extends Tool {
 
 	@JsonProperty("file_path")
 	@JsonPropertyDescription("The path of the file to write to")
@@ -19,7 +24,8 @@ public class Write {
 	@JsonPropertyDescription("The content to write to the file")
 	public String content;
 
-	public String execute() {
+	@Override
+	public String execute(Agent agent) {
 		try {
 			final var bytes = content.getBytes();
 			Files.write(Path.of(filePath), bytes);
