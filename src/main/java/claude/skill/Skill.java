@@ -11,6 +11,7 @@ public record Skill(
 	Path directory,
 	String name,
 	String description,
+	SkillContext context,
 	String content
 ) {
 
