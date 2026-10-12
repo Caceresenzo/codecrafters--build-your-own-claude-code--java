@@ -1,4 +1,4 @@
-package claude.tool;
+package claude.tool.impl;
 
 import java.io.File;
 import java.io.IOException;
@@ -8,15 +8,21 @@ import java.nio.file.Path;
 import com.fasterxml.jackson.annotation.JsonClassDescription;
 import com.fasterxml.jackson.annotation.JsonProperty;
 import com.fasterxml.jackson.annotation.JsonPropertyDescription;
+import com.fasterxml.jackson.annotation.JsonTypeName;
 
+import claude.Agent;
+import claude.tool.Tool;
+
+@JsonTypeName("Bash")
 @JsonClassDescription("Execute a shell command")
-public class Bash {
+public class BashTool extends Tool {
 
 	@JsonProperty("command")
 	@JsonPropertyDescription("The command to execute")
 	public String command;
 
-	public String execute() {
+	@Override
+	public String execute(Agent agent) {
 		Path logDirectoryPath = null;
 		try {
 			logDirectoryPath = Files.createTempDirectory("claude-code-bash");
