@@ -1,8 +1,9 @@
 package claude.tool.impl;
 
-import java.nio.charset.StandardCharsets;
+import java.net.URI;
 import java.nio.file.Files;
 import java.nio.file.Path;
+import java.util.stream.Collectors;
 
 import com.fasterxml.jackson.annotation.JsonClassDescription;
 import com.fasterxml.jackson.annotation.JsonProperty;
@@ -10,6 +11,7 @@ import com.fasterxml.jackson.annotation.JsonPropertyDescription;
 import com.fasterxml.jackson.annotation.JsonTypeName;
 
 import claude.Agent;
+import claude.lsp.Location;
 import claude.lsp.LspClient;
 import claude.tool.Tool;
 import io.swagger.v3.oas.annotations.media.Schema;
@@ -61,9 +63,7 @@ public class LspTool extends Tool {
 
 	@SneakyThrows
 	public String executeGoToDefinition(LspClient lspClient, Path path) {
-		final var content = Files.readString(path, StandardCharsets.UTF_8);
-
-		lspClient.notifyDocumentDidOpen(path, 1, content);
+		lspClient.notifyDocumentDidOpen(path);
 
 		final var definition = lspClient.queryDefinition(path, line, character);
 
@@ -71,7 +71,43 @@ public class LspTool extends Tool {
 	}
 
 	public String executeFindReferences(LspClient lspClient, Path path) {
-		return "LSP is not implemented yet";
+		lspClient.notifyDocumentDidOpen(path);
+
+		final var allLocations = lspClient.queryReferences(path, line, character);
+		if (allLocations.isEmpty()) {
+			return "No reference found.";
+		}
+
+		final var locationsPerUri = allLocations.stream().collect(Collectors.groupingBy(Location::uri));
+
+		final var builder = new StringBuilder();
+		builder
+			.append("Found ")
+			.append(allLocations.size())
+			.append(" references across ")
+			.append(locationsPerUri.size())
+			.append(" files:\n");
+
+		final var currentPath = Path.of(".").toAbsolutePath().normalize().toString().length();
+
+		for (final var entry : locationsPerUri.entrySet()) {
+			final var uri = Path.of(URI.create(entry.getKey()));
+			final var locations = entry.getValue();
+
+			builder
+				.append("\n")
+				.append(uri.toString().substring(currentPath))
+				.append(":\n");
+
+			for (final var location : locations) {
+				builder
+					.append("  Line ")
+					.append(location.range().start().toString1Based())
+					.append("\n");
+			}
+		}
+
+		return builder.toString();
 	}
 
 }
