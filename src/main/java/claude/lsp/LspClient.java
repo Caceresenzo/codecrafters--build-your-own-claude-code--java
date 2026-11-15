@@ -13,17 +13,22 @@ import java.nio.charset.StandardCharsets;
 import java.nio.file.Files;
 import java.nio.file.Path;
 import java.time.Duration;
+import java.util.ArrayList;
 import java.util.HashMap;
 import java.util.List;
 import java.util.Map;
 import java.util.function.BiFunction;
+import java.util.stream.Collectors;
 
 import com.fasterxml.jackson.annotation.JsonInclude;
+import com.fasterxml.jackson.annotation.JsonProperty;
 import com.fasterxml.jackson.core.StreamReadFeature;
 import com.fasterxml.jackson.core.type.TypeReference;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import com.fasterxml.jackson.databind.json.JsonMapper;
 
+import claude.lsp.notification.Notification;
+import claude.lsp.notification.NotificationBatch;
 import lombok.SneakyThrows;
 
 public final class LspClient {
@@ -37,8 +42,10 @@ public final class LspClient {
 	public final Map<String, String> extensionToLanguage;
 
 	private final Map<Path, Integer> fileVersions = new HashMap<>();
-
 	private final BiFunction<Path, Integer, Integer> increment = (_, oldValue) -> oldValue != null ? oldValue + 1 : 1;
+
+	private int notificationCursor = 0;
+	private List<Notification> pendingNotifications = new ArrayList<>();
 
 	public static LspClient fromEnvironment() {
 		if (System.getenv("CODECRAFTERS_LSP_URL") == null) {
@@ -136,7 +143,7 @@ public final class LspClient {
 		notifyDocumentDidOpen(path, version, content);
 	}
 
-	public void notifyDocumentDidOpen(Path path, int version, String text) {
+	private void notifyDocumentDidOpen(Path path, int version, String text) {
 		final var textDocument = new TextDocument(
 			path,
 			getLanguageFromExtension(path),
@@ -148,18 +155,33 @@ public final class LspClient {
 	}
 
 	public void onFileWritten(Path path, String content) {
-		path = path.toAbsolutePath().normalize();
+		final var correctedPath = toCorrectedPath(path);
 
-		final var version = fileVersions.compute(path, increment);
+		fetchNotifications(Duration.ZERO);
+		pendingNotifications.removeIf((notification) -> !isDiagnosticFor(notification, correctedPath, null));
+
+		final var version = notifyDocumentDidChange(correctedPath, content);
+
+		final var extension = getExtensionWithDot(correctedPath);
+		if (extensionToLanguage.containsKey(extension)) {
+			waitForDiagnostics(correctedPath, version, Duration.ofSeconds(5));
+		}
+	}
+
+	private int notifyDocumentDidChange(Path path, String text) {
+		final var correctedPath = toCorrectedPath(path);
+
+		final var version = fileVersions.compute(correctedPath, increment);
 		if (version == 1) {
-			notifyDocumentDidOpen(path, version, content);
-			return;
+			notifyDocumentDidOpen(correctedPath, version, text);
+			return version;
 		}
 
-		final var textDocument = new TextDocument(path, version);
-		final var contentChanges = List.of(new ContentChange(content));
+		final var textDocument = new TextDocument(correctedPath, version);
+		final var contentChanges = List.of(new ContentChange(text));
 
 		notify("textDocument/didChange", new NotifyDidChangedBody(textDocument, contentChanges), null);
+		return version;
 	}
 
 	private String getExtensionWithDot(Path path) {
@@ -175,6 +197,102 @@ public final class LspClient {
 
 	private String getLanguageFromExtension(Path path) {
 		return extensionToLanguage.getOrDefault(getExtensionWithDot(path), "unknown");
+	}
+
+	private List<Notification> fetchNotifications(Duration timeout) {
+		final var batch = call("notifications", new FetchNotifications(notificationCursor, timeout), new TypeReference<NotificationBatch>() {});
+
+		notificationCursor = batch.cursor();
+		pendingNotifications.addAll(batch.notifications());
+
+		return batch.notifications();
+	}
+
+	private boolean isDiagnosticFor(Notification notification, Path correctedPath, Integer version) {
+		if (!(notification instanceof Notification.PublishDiagnostics publishDiagnostics)) {
+			return false;
+		}
+
+		if (!publishDiagnostics.path().equals(correctedPath)) {
+			return false;
+		}
+
+		final var notificationVersion = publishDiagnostics.version();
+		return version == null || notificationVersion == null || version.equals(notificationVersion);
+	}
+
+	@SneakyThrows
+	private void waitForDiagnostics(Path correctedPath, int version, Duration timeout) {
+		final var startTime = System.currentTimeMillis();
+		final var endTime = startTime + timeout.toMillis();
+
+		while (true) {
+			final var remaining = endTime - System.currentTimeMillis();
+			if (remaining <= 0) {
+				break;
+			}
+
+			final var notifications = fetchNotifications(Duration.ofMillis(remaining));
+			if (notifications.stream().anyMatch((notification) -> isDiagnosticFor(notification, correctedPath, version))) {
+				return;
+			}
+
+			if (notifications.isEmpty()) {
+				Thread.sleep(Duration.ofMillis(50));
+			}
+		}
+
+		throw new IllegalStateException("Timed out waiting for diagnostics for %s at version %d".formatted(correctedPath, version));
+	}
+
+	public String collectDiagnostics() {
+		fetchNotifications(Duration.ZERO);
+
+		final var notifications = new ArrayList<>(pendingNotifications);
+		pendingNotifications.clear();
+
+		final var diagnosticsPerUri = notifications.stream()
+			.filter((notification) -> notification instanceof Notification.PublishDiagnostics)
+			.map(Notification.PublishDiagnostics.class::cast)
+			.filter((notification) -> {
+				final var version = notification.version();
+				final var path = notification.path();
+
+				return version == null || version.equals(fileVersions.get(path));
+			})
+			.filter((notification) -> !notification.diagnostics().isEmpty())
+			.collect(Collectors.toMap(
+				Notification.PublishDiagnostics::path,
+				Notification.PublishDiagnostics::diagnostics,
+				(_, b) -> b) /* last one wins */
+			);
+
+		if (diagnosticsPerUri.isEmpty()) {
+			return null;
+		}
+
+		final var builder = new StringBuilder();
+		builder.append("<new-diagnostics>The following new diagnostic issues were detected:\n");
+
+		final var currentPath = Path.of(".").toAbsolutePath().normalize().toString().length() + 1;
+
+		for (var entry : diagnosticsPerUri.entrySet()) {
+			final var path = entry.getKey();
+			final var diagnostics = entry.getValue();
+
+			builder.append("\n").append(path.toString().substring(currentPath)).append(":");
+			for (final var diagnostic : diagnostics) {
+				final var location = diagnostic.range() != null
+					? "[Line %s]".formatted(diagnostic.range().start().toString1Based())
+					: "[File]";
+
+				builder.append("\n  ").append(location).append(": ").append(diagnostic.message());
+			}
+		}
+
+		builder.append("</new-diagnostics>");
+
+		return builder.toString();
 	}
 
 	private record Configuration(Map<String, String> extensionToLanguage) {}
@@ -204,6 +322,14 @@ public final class LspClient {
 	private record NotifyDidOpenBody(TextDocument textDocument) {}
 
 	private record NotifyDidChangedBody(TextDocument textDocument, List<ContentChange> contentChanges) {}
+
+	private record FetchNotifications(int after, @JsonProperty("timeoutMs") int timeout) {
+
+		FetchNotifications(int after, Duration timeout) {
+			this(after, (int) timeout.toSeconds());
+		}
+
+	}
 
 	private record ContentChange(String text) {}
 
