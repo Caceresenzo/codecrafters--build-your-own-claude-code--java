@@ -103,6 +103,8 @@ public class Agent {
 
 	public Optional<String> loop() {
 		while (true) {
+			beforeLoop();
+
 			final var choices = client.chat().completions().create(history.build()).choices();
 			if (choices.isEmpty()) {
 				throw new IllegalStateException("no choices returned from the chat completion");
@@ -139,6 +141,16 @@ public class Agent {
 			} else {
 				System.err.println("Chat completion finished with reason: " + choice.finishReason());
 				return Optional.empty();
+			}
+		}
+	}
+
+	private void beforeLoop() {
+		if (lspClient != null) {
+			final var diagnostics = lspClient.collectDiagnostics();
+
+			if (diagnostics != null) {
+				history.addUserMessage(diagnostics);
 			}
 		}
 	}
