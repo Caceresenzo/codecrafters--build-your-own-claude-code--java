@@ -2,14 +2,14 @@ package claude;
 
 import com.openai.client.okhttp.OpenAIOkHttpClient;
 
+import claude.lsp.LspClient;
 import claude.skill.Skillbox;
 import claude.tool.Toolbox;
 import claude.tool.impl.BashTool;
+import claude.tool.impl.LspTool;
 import claude.tool.impl.ReadTool;
 import claude.tool.impl.SkillTool;
 import claude.tool.impl.WriteTool;
-import claude.tool.impl.lsp.LspClient;
-import claude.tool.impl.lsp.LspTool;
 
 public class Main {
 
