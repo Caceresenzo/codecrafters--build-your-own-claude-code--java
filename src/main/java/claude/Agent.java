@@ -103,6 +103,8 @@ public class Agent {
 
 	public Optional<String> loop() {
 		while (true) {
+			beforeLoop();
+
 			final var choices = client.chat().completions().create(history.build()).choices();
 			if (choices.isEmpty()) {
 				throw new IllegalStateException("no choices returned from the chat completion");
@@ -125,7 +127,12 @@ public class Agent {
 					}
 
 					final var functionToolCall = toolCall.asFunction();
-					final var result = callFunction(functionToolCall.function(), skillbox);
+					var result = callFunction(functionToolCall.function(), skillbox);
+
+					final var diagnostics = collectLspClientDiagnostics();
+					if (diagnostics.isPresent()) {
+						result += diagnostics.get();
+					}
 
 					history.addMessage(
 						ChatCompletionToolMessageParam.builder()
@@ -141,6 +148,23 @@ public class Agent {
 				return Optional.empty();
 			}
 		}
+	}
+
+	private void beforeLoop() {
+		collectLspClientDiagnostics().ifPresent(history::addUserMessage);
+	}
+
+	private Optional<String> collectLspClientDiagnostics() {
+		if (lspClient == null) {
+			return Optional.empty();
+		}
+
+		final var diagnostics = lspClient.collectDiagnostics();
+		if (diagnostics == null) {
+			return Optional.empty();
+		}
+
+		return Optional.of(diagnostics);
 	}
 
 	private Object callFunction(ChatCompletionMessageFunctionToolCall.Function function, Skillbox skillbox) {
