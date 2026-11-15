@@ -8,6 +8,8 @@ import claude.tool.impl.BashTool;
 import claude.tool.impl.ReadTool;
 import claude.tool.impl.SkillTool;
 import claude.tool.impl.WriteTool;
+import claude.tool.impl.lsp.LspClient;
+import claude.tool.impl.lsp.LspTool;
 
 public class Main {
 
@@ -35,7 +37,7 @@ public class Main {
 
 		var modelName = System.getenv("OPENROUTER_MODEL_NAME");
 		if (modelName == null || modelName.isEmpty()) {
-			modelName = "anthropic/claude-haiku-4.5"; // nvidia/nemotron-3.5-lightning:free
+			modelName = "anthropic/claude-haiku-4.5"; // nvidia/nemotron-3-ultra-550b-a55b:free
 		}
 
 		final var client = OpenAIOkHttpClient.builder()
@@ -52,13 +54,20 @@ public class Main {
 		toolbox.add(BashTool.class);
 		toolbox.add(SkillTool.class);
 
+		final var lspClient = LspClient.fromEnvironment();
+		if (lspClient != null) {
+			System.err.println("LSP client connected");
+			toolbox.add(LspTool.class);
+		}
+
 		final var claude = new Agent(
 			"Claude",
 			client,
 			modelName,
 			toolbox,
 			skillbox,
-			true
+			true,
+			lspClient
 		);
 
 		claude.pushUserInput(prompt);
