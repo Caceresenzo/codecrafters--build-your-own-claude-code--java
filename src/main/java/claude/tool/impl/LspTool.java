@@ -63,16 +63,12 @@ public class LspTool extends Tool {
 
 	@SneakyThrows
 	public String executeGoToDefinition(LspClient lspClient, Path path) {
-		lspClient.notifyDocumentDidOpen(path);
-
 		final var definition = lspClient.queryDefinition(path, line, character);
 
 		return "Defined in %s, from %s to %s".formatted(definition.uri(), definition.range().start().toString1Based(), definition.range().end().toString1Based());
 	}
 
 	public String executeFindReferences(LspClient lspClient, Path path) {
-		lspClient.notifyDocumentDidOpen(path);
-
 		final var allLocations = lspClient.queryReferences(path, line, character);
 		if (allLocations.isEmpty()) {
 			return "No reference found.";

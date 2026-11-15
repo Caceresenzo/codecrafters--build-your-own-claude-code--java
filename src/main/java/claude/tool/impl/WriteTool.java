@@ -26,13 +26,21 @@ public class WriteTool extends Tool {
 
 	@Override
 	public String execute(Agent agent) {
+		final var path = Path.of(filePath).toAbsolutePath().normalize();
+		final var bytes = content.getBytes();
+
 		try {
-			final var bytes = content.getBytes();
-			Files.write(Path.of(filePath), bytes);
-			return "Wrote %s bytes".formatted(bytes.length);
+			Files.write(path, bytes);
 		} catch (IOException exception) {
 			return "The file could not be written: %s".formatted(exception.getMessage());
 		}
+
+		final var lspClient = agent.getLspClient();
+		if (lspClient != null) {
+			lspClient.onFileWritten(path, content);
+		}
+
+		return "Wrote %s bytes".formatted(bytes.length);
 	}
 
 }

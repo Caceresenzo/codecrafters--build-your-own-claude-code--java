@@ -13,8 +13,10 @@ import java.nio.charset.StandardCharsets;
 import java.nio.file.Files;
 import java.nio.file.Path;
 import java.time.Duration;
+import java.util.HashMap;
 import java.util.List;
 import java.util.Map;
+import java.util.function.BiFunction;
 
 import com.fasterxml.jackson.annotation.JsonInclude;
 import com.fasterxml.jackson.core.StreamReadFeature;
@@ -33,6 +35,10 @@ public final class LspClient {
 		.build();
 
 	public final Map<String, String> extensionToLanguage;
+
+	private final Map<Path, Integer> fileVersions = new HashMap<>();
+
+	private final BiFunction<Path, Integer, Integer> increment = (_, oldValue) -> oldValue != null ? oldValue + 1 : 1;
 
 	public static LspClient fromEnvironment() {
 		if (System.getenv("CODECRAFTERS_LSP_URL") == null) {
@@ -90,36 +96,70 @@ public final class LspClient {
 	}
 
 	public Location queryDefinition(Path path, int line, int character) {
-		final var textDocument = new TextDocument(path.toUri().toString());
+		path = toCorrectedPath(path);
+		notifyDocumentDidOpenIfNecessary(path);
+
+		final var textDocument = new TextDocument(path);
 		final var position = new Position(line - 1, character - 1);
 
 		return request("textDocument/definition", new QueryDefinitionBody(textDocument, position), new TypeReference<Location>() {});
 	}
 
 	public List<Location> queryReferences(Path path, int line, int character) {
-		final var textDocument = new TextDocument(path.toUri().toString());
+		path = toCorrectedPath(path);
+		notifyDocumentDidOpenIfNecessary(path);
+
+		final var textDocument = new TextDocument(path);
 		final var position = new Position(line - 1, character - 1);
 		final var context = new Context(true);
 
 		return request("textDocument/references", new QueryReferencesBody(textDocument, position, context), new TypeReference<List<Location>>() {});
 	}
 
-	@SneakyThrows
-	public void notifyDocumentDidOpen(Path path) {
-		final var content = Files.readString(path, StandardCharsets.UTF_8);
+	private boolean notifyDocumentDidOpenIfNecessary(Path path) {
+		final var version = fileVersions.get(path);
+		if (version != null) {
+			return false;
+		}
 
-		notifyDocumentDidOpen(path, 1, content);
+		notifyDocumentDidOpen(path);
+		return true;
+	}
+
+	@SneakyThrows
+	private void notifyDocumentDidOpen(Path path) {
+		path = toCorrectedPath(path);
+
+		final var content = Files.readString(path, StandardCharsets.UTF_8);
+		final var version = fileVersions.compute(path, increment);
+
+		notifyDocumentDidOpen(path, version, content);
 	}
 
 	public void notifyDocumentDidOpen(Path path, int version, String text) {
 		final var textDocument = new TextDocument(
-			path.toUri().toString(),
+			path,
 			getLanguageFromExtension(path),
 			version,
 			text
 		);
 
 		notify("textDocument/didOpen", new NotifyDidOpenBody(textDocument), null);
+	}
+
+	public void onFileWritten(Path path, String content) {
+		path = path.toAbsolutePath().normalize();
+
+		final var version = fileVersions.compute(path, increment);
+		if (version == 1) {
+			notifyDocumentDidOpen(path, version, content);
+			return;
+		}
+
+		final var textDocument = new TextDocument(path, version);
+		final var contentChanges = List.of(new ContentChange(content));
+
+		notify("textDocument/didChange", new NotifyDidChangedBody(textDocument, contentChanges), null);
 	}
 
 	private String getExtensionWithDot(Path path) {
@@ -141,8 +181,16 @@ public final class LspClient {
 
 	private record TextDocument(String uri, @JsonInclude(NON_NULL) String languageId, @JsonInclude(NON_NULL) Integer version, @JsonInclude(NON_NULL) String text) {
 
-		TextDocument(String uri) {
-			this(uri, null, null, null);
+		TextDocument(Path path) {
+			this(toUri(path), null, null, null);
+		}
+
+		TextDocument(Path path, int version) {
+			this(toUri(path), null, version, null);
+		}
+
+		TextDocument(Path path, String languageId, int version, String text) {
+			this(toUri(path), languageId, version, text);
 		}
 
 	}
@@ -155,6 +203,18 @@ public final class LspClient {
 
 	private record NotifyDidOpenBody(TextDocument textDocument) {}
 
+	private record NotifyDidChangedBody(TextDocument textDocument, List<ContentChange> contentChanges) {}
+
+	private record ContentChange(String text) {}
+
 	private record RequestPayload(String method, Object params) {}
+
+	private static Path toCorrectedPath(Path path) {
+		return path.toAbsolutePath().normalize();
+	}
+
+	private static String toUri(Path path) {
+		return path.toUri().toString();
+	}
 
 }
