@@ -40,6 +40,17 @@ public class WriteTool extends Tool {
 			lspClient.onFileWritten(path, content);
 		}
 
+		final var builder = new StringBuilder();
+		builder.append("Wrote ").append(bytes.length).append(" bytes");
+
+		if (lspClient != null) {
+			final var diagnostics = lspClient.collectDiagnostics();
+
+			if (diagnostics != null) {
+				builder.append(diagnostics);
+			}
+		}
+
 		return "Wrote %s bytes".formatted(bytes.length);
 	}
 
