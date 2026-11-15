@@ -11,6 +11,7 @@ import com.openai.models.chat.completions.ChatCompletionToolMessageParam;
 
 import claude.skill.Skillbox;
 import claude.tool.Toolbox;
+import claude.tool.impl.lsp.LspClient;
 import lombok.Getter;
 
 @Getter
@@ -25,7 +26,9 @@ public class Agent {
 	private final Skillbox skillbox;
 	private final Toolbox toolbox;
 
-	public Agent(String name, OpenAIClient client, String modelName, Toolbox toolbox, Skillbox skillbox, boolean includeSkillsMessage) {
+	private final @Getter LspClient lspClient;
+
+	public Agent(String name, OpenAIClient client, String modelName, Toolbox toolbox, Skillbox skillbox, boolean includeSkillsMessage, LspClient lspClient) {
 		this.name = name;
 
 		this.client = client;
@@ -44,6 +47,8 @@ public class Agent {
 		if (includeSkillsMessage) {
 			this.history.addSystemMessage(skillbox.toSystemPrompt());
 		}
+
+		this.lspClient = lspClient;
 	}
 
 	public Agent fork(String name, boolean includeSkillsMessage) {
@@ -53,7 +58,8 @@ public class Agent {
 			modelName,
 			toolbox,
 			skillbox,
-			includeSkillsMessage
+			includeSkillsMessage,
+			lspClient
 		);
 	}
 
