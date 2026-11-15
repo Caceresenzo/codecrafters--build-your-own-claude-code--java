@@ -11,10 +11,12 @@ import java.net.http.HttpRequest;
 import java.net.http.HttpResponse;
 import java.nio.file.Path;
 import java.time.Duration;
+import java.util.List;
 import java.util.Map;
 
 import com.fasterxml.jackson.annotation.JsonInclude;
 import com.fasterxml.jackson.core.StreamReadFeature;
+import com.fasterxml.jackson.core.type.TypeReference;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import com.fasterxml.jackson.databind.json.JsonMapper;
 
@@ -49,7 +51,7 @@ public final class LspClient {
 	}
 
 	@SneakyThrows
-	private <T> T call(String action, Object body, Class<T> responseType) {
+	private <T> T call(String action, Object body, TypeReference<T> responseType) {
 		final var bodyString = objectMapper.writeValueAsString(body);
 		System.err.println("lsp: %s: >> %s".formatted(action, bodyString));
 
@@ -66,30 +68,38 @@ public final class LspClient {
 		final var responseBody = response.body();
 		System.err.println("lsp: %s: << %s".formatted(action, responseBody));
 
-		if (responseType == Void.class) {
+		if (responseType == null) {
 			return null;
 		}
 
 		return objectMapper.readValue(responseBody, responseType);
 	}
 
-	private <T> T request(String method, Object params, Class<T> responseType) {
+	private <T> T request(String method, Object params, TypeReference<T> responseType) {
 		return call("request", new RequestPayload(method, params), responseType);
 	}
 
-	private <T> T notify(String method, Object params, Class<T> responseType) {
+	private <T> T notify(String method, Object params, TypeReference<T> responseType) {
 		return call("notify", new RequestPayload(method, params), responseType);
 	}
 
 	public Configuration queryConfiguration() {
-		return call("configuration", Map.of(), Configuration.class);
+		return call("configuration", Map.of(), new TypeReference<Configuration>() {});
 	}
 
-	public Definition queryDefinition(Path path, int line, int character) {
+	public Location queryDefinition(Path path, int line, int character) {
 		final var textDocument = new TextDocument(path.toUri().toString());
 		final var position = new Position(line - 1, character - 1);
 
-		return request("textDocument/definition", new QueryDefinitionBody(textDocument, position), Definition.class);
+		return request("textDocument/definition", new QueryDefinitionBody(textDocument, position), new TypeReference<Location>() {});
+	}
+
+	public List<Location> queryReferences(Path path, int line, int character) {
+		final var textDocument = new TextDocument(path.toUri().toString());
+		final var position = new Position(line - 1, character - 1);
+		final var context = new Context(true);
+
+		return request("textDocument/definition", new QueryReferencesBody(textDocument, position, context), new TypeReference<List<Location>>() {});
 	}
 
 	public void notifyDocumentDidOpen(Path path, int version, String text) {
@@ -100,7 +110,7 @@ public final class LspClient {
 			text
 		);
 
-		notify("textDocument/didOpen", new NotifyDidOpenBody(textDocument), Void.class);
+		notify("textDocument/didOpen", new NotifyDidOpenBody(textDocument), null);
 	}
 
 	private String getExtensionWithDot(Path path) {
@@ -128,7 +138,11 @@ public final class LspClient {
 
 	}
 
+	private record Context(boolean includeDeclaration) {}
+
 	private record QueryDefinitionBody(TextDocument textDocument, Position position) {}
+
+	private record QueryReferencesBody(TextDocument textDocument, Position position, Context context) {}
 
 	private record NotifyDidOpenBody(TextDocument textDocument) {}
 
