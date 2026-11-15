@@ -9,9 +9,9 @@ import com.openai.models.chat.completions.ChatCompletionCreateParams;
 import com.openai.models.chat.completions.ChatCompletionMessageFunctionToolCall;
 import com.openai.models.chat.completions.ChatCompletionToolMessageParam;
 
+import claude.lsp.LspClient;
 import claude.skill.Skillbox;
 import claude.tool.Toolbox;
-import claude.tool.impl.lsp.LspClient;
 import lombok.Getter;
 
 @Getter
